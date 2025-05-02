@@ -1,109 +1,177 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const apiUrl = 'http://127.0.0.1:5001';
-    let authToken = localStorage.getItem('authToken');
+    console.log('Приложение загружено!');
+    const API_URL = 'http://127.0.0.1:5000/api';
+    let expenses = [];
 
-    // Если нет токена - перенаправляем на страницу входа
-    if (!authToken) {
-        window.location.href = '/login.html';
+    // Инициализация приложения
+    init();
+
+    function init() {
+        loadExpenses();
+        setupEventListeners();
     }
 
-    // Инициализация Chart.js
-    const ctx = document.getElementById('categoryChart').getContext('2d');
-    const categoryChart = new Chart(ctx, {
-        type: 'pie',
-        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
-        options: { responsive: true }
-    });
-
-    // Загрузка данных при старте
-    loadExpenses();
-    loadStats();
-
-    // Обработчик формы
-    document.getElementById('expenseForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-
-        const expense = {
-            amount: parseFloat(document.getElementById('amount').value),
-            category: document.getElementById('category').value,
-            date: document.getElementById('date').value,
-            description: document.getElementById('description').value
-        };
-
+    // Загрузка расходов с сервера
+    async function loadExpenses() {
         try {
-            const response = await fetch(`${apiUrl}/expenses`, {
+            const response = await fetch(`${API_URL}/expenses`);
+            if (!response.ok) throw new Error('Ошибка загрузки');
+            expenses = await response.json();
+            renderExpenses();
+            updateCharts();
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось загрузить данные', 'error');
+        }
+    }
+
+    // Добавление нового расхода
+    async function addExpense(expenseData) {
+        try {
+            const response = await fetch(`${API_URL}/expenses`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authToken}`
                 },
-                body: JSON.stringify(expense)
+                body: JSON.stringify(expenseData)
             });
 
-            if (response.ok) {
-                loadExpenses();
-                loadStats();
-                this.reset();
-            } else {
-                alert('Ошибка при добавлении расхода');
-            }
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    });
+            if (!response.ok) throw new Error('Ошибка сохранения');
 
-    // Загрузка списка расходов
-    async function loadExpenses() {
-        try {
-            const response = await fetch(`${apiUrl}/expenses`, {
-                headers: {
-                    'Authorization': `Bearer ${authToken}`
-                }
-            });
-            const expenses = await response.json();
-            renderExpenses(expenses);
+            const newExpense = await response.json();
+            expenses.push(newExpense);
+            renderExpenses();
+            updateCharts();
+            showNotification('Расход успешно добавлен', 'success');
+            return true;
         } catch (error) {
-            console.error('Error:', error);
+            console.error('Ошибка:', error);
+            showNotification('Не удалось добавить расход', 'error');
+            return false;
         }
     }
 
-    // Загрузка статистики
-    async function loadStats() {
-        try {
-            const response = await fetch(`${apiUrl}/stats`, {
-                headers: {
-                    'Authorization': `Bearer ${authToken}`
-                }
-            });
-            const stats = await response.json();
-            updateChart(stats);
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    }
-
-    // Обновление таблицы расходов
-    function renderExpenses(expenses) {
-        const tbody = document.querySelector('#expensesTable tbody');
-        tbody.innerHTML = expenses.map(expense => `
+    // Отображение списка расходов
+    function renderExpenses() {
+        const tableBody = document.querySelector('#expensesTable tbody');
+        tableBody.innerHTML = expenses.map(expense => `
             <tr>
-                <td>${expense.amount}</td>
+                <td>${expense.amount} руб.</td>
                 <td>${expense.category}</td>
-                <td>${expense.date}</td>
-                <td>${expense.description || ''}</td>
+                <td>${new Date(expense.date).toLocaleDateString()}</td>
+                <td>${expense.description || '-'}</td>
+                <td>
+                    <button class="delete-btn" data-id="${expense.id}">×</button>
+                </td>
             </tr>
         `).join('');
     }
 
-    // Обновление графика
-    function updateChart(stats) {
-        const labels = Object.keys(stats);
-        const data = Object.values(stats);
-        const colors = labels.map((_, i) => `hsl(${i * 360 / labels.length}, 70%, 50%)`);
+    // Обновление графиков
+    function updateCharts() {
+        // Анализ по категориям
+        const byCategory = expenses.reduce((acc, expense) => {
+            acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+            return acc;
+        }, {});
 
-        categoryChart.data.labels = labels;
-        categoryChart.data.datasets[0].data = data;
-        categoryChart.data.datasets[0].backgroundColor = colors;
-        categoryChart.update();
+        // Здесь можно добавить код для Chart.js
+        console.log('Данные для графиков:', byCategory);
+    }
+
+    // Удаление расхода
+    async function deleteExpense(id) {
+        try {
+            const response = await fetch(`${API_URL}/expenses/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) throw new Error('Ошибка удаления');
+
+            expenses = expenses.filter(exp => exp.id !== id);
+            renderExpenses();
+            updateCharts();
+            showNotification('Расход удален', 'success');
+        } catch (error) {
+            console.error('Ошибка:', error);
+            showNotification('Не удалось удалить расход', 'error');
+        }
+    }
+
+    // Уведомления
+    function showNotification(message, type) {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+
+    // Обработчики событий
+    function setupEventListeners() {
+        // Форма добавления расхода
+        const expenseForm = document.getElementById('expenseForm');
+        if (expenseForm) {
+            expenseForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const formData = new FormData(expenseForm);
+                const expense = {
+                    amount: parseFloat(formData.get('amount')),
+                    category: formData.get('category'),
+                    date: formData.get('date'),
+                    description: formData.get('description')
+                };
+
+                const success = await addExpense(expense);
+                if (success) expenseForm.reset();
+            });
+        }
+
+        // Форма входа
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const formData = new FormData(loginForm);
+                const credentials = {
+                    username: formData.get('username'),
+                    password: formData.get('password')
+                };
+
+                try {
+                    const response = await fetch(`${API_URL}/login`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(credentials)
+                    });
+
+                    if (!response.ok) throw new Error('Ошибка авторизации');
+
+                    const { token } = await response.json();
+                    localStorage.setItem('authToken', token);
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('Ошибка:', error);
+                    showNotification('Неверные учетные данные', 'error');
+                }
+            });
+        }
+
+        // Кнопки удаления (делегирование событий)
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                if (confirm('Удалить этот расход?')) {
+                    const id = e.target.dataset.id;
+                    deleteExpense(id);
+                }
+            }
+        });
     }
 });

@@ -99,9 +99,23 @@ def home():
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return render_template('index.html')  # Важно: файл должен существовать
+@app.route('/', endpoint='home')
+def index():
+    return render_template('index.html')
+
+# Явно указываем endpoint
+@app.route('/login', endpoint='login')
+def login_page():
+    return render_template('login.html')
+
+
+print("Доступные маршруты:")
+for rule in app.url_map.iter_rules():
+    print(f"{rule.endpoint}: {rule.rule}")
+
+
 
 if __name__ == '__main__':
+    with app.test_request_context():
+        print(url_for('login'))  # Проверка генерации URL
     app.run(debug=True)
